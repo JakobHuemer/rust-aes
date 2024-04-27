@@ -1,7 +1,7 @@
-use std::env::Args;
 
-use crate::aes::{print_hex, AES128};
-mod aes;
+mod aes128;
+use aes128::AES128;
+
 /**
  *
  * USAGE: aes128 [MODE] [args]
@@ -20,137 +20,86 @@ mod aes;
  */
 
 
-enum Mode {
-    FileEncryption,
-    TextEncryption,
-    FileDecryption,
-    TextDecryption,
-    None,
-}
-
-struct Parser {
-    args: Args,
-    mode: Mode,
-}
-
-impl Parser {
-    fn new(args: Args) -> Parser {
-        Parser {
-            args: args,
-            mode: Mode::None,
-        }
-    }
-
-    fn run(&mut self) {
-        // Parse the command line arguments
-        self.parse_mode();
-
-        // Perform the appropriate action based on the mode
-        match self.mode {
-            Mode::FileEncryption => self.file_encrypt(),
-            Mode::TextEncryption => self.text_encrypt(),
-            Mode::FileDecryption => self.file_decrypt(),
-            Mode::TextDecryption => self.text_decrypt(),
-            Mode::None => panic!("{}", Self::usage_string_error("No mode was provided!")),
-        }
-    }
-
-    fn usage_string_error(error: &str) -> String {
-        format!(
-            "{}
-            USAGE: aes128 [MODE] [args...]
-
-            MODE:
-                fe - File encrypt
-                te - Text encrypt
-                fd - File decrypt
-                td - Text decrypt
-
-            args:
-                -i=FILE, input file
-                -o=FILE, output file
-                -t=TEXT, text to en-, decrypt",
-            error
-        )
-    }
-
-    fn parse_mode(&mut self) {
-        let error = Self::usage_string_error("Noe moed was Provided");
-
-        let mode = self
-            .args
-            .nth(1)
-            .expect(Self::usage_string_error(&error.as_str()).as_str());
-        let mode_str = mode.as_str();
-        self.mode = match mode_str {
-            "fe" => Mode::FileEncryption,
-            "fd" => Mode::FileDecryption,
-            "te" => Mode::TextEncryption,
-            "td" => Mode::TextDecryption,
-
-            _ => panic!(
-                "{}",
-                Self::usage_string_error(format!("Mode {} is not a valid mode", mode).as_str())
-            ),
-        };
-    }
-
-    fn file_encrypt(&self) {
-        // Implement file encryption logic here
-    }
-
-    fn text_encrypt(&self) {
-        // Implement text encryption logic here
-    }
-
-    fn file_decrypt(&self) {
-        // Implement file decryption logic here
-    }
-
-    fn text_decrypt(&self) {
-        // Implement text decryption logic here
-    }
-}
-
 fn main() {
-    let input = "A block cipher works on units of a fixed size \
-    (known as a block size), but messages come in a variety of lengths. \
-    So some modes (namely ECB and CBC) require that the final block be padded before encryption. \
-    Several padding schemes exist. The simplest is to add null bytes to the plaintext to bring its \
-    length up to a multiple of the block size, but care must be taken that the original length of \
-    the plaintext can be recovered; this is trivial, for example, if the plaintext is a C style string which \
-    contains no null bytes except at the end. Slightly more complex is the original DES method, which is to add a single one bit, \
-    followed by enough zero bits to fill out the block; if the message ends on a block boundary, \
-    a whole padding block will be added. Most sophisticated are CBC-specific schemes such as ciphertext stealing \
-    or residual block termination, which do not cause any extra ciphertext, at the expense of some additional complexity. \
-    Schneier and Ferguson suggest two possibilities, both simple: append a byte with value 128 (hex 80), followed \
-    by as many zero bytes as needed to fill the last block, or pad the last block with n bytes all with value n. ";
-    let state = input.as_bytes().to_vec();
+    // let input = *b"lorem ipsum dolor sit amet, consectetur adipiscing elit. \
+    // Sed non risus. Suspendisse lectus tortor, dignissim sit amet, adipiscing nec, \
+    // ultricies sed, dolor. Cras elementum ultrices diam. Maecenas ligula massa, \
+    // varius a, semper congue, euismod non, mi. Proin porttitor, orci nec nonummy \
+    // molestie, enim est eleifend mi, non fermentum diam nisl sit amet erat. Duis \
+    // semper. Duis arcu massa, scelerisque vitae, consequat isn, pretium a, enim. \
+    // Pellentesque congue. Ut in risus volutpat libero pharetra tempor. Cras vestibulum \
+    // bibendum augue. Praesent egestas leo in pede. Praesent blandit odio eu enim. \
+    // Pellentesque sed dui ut augue blandit sodales. Vestibulum ante ipsum primis in \
+    // faucibus orci luctus et ultrices posuere cubilia Curae; Aliquam nibh. Morbi vel \
+    // justo vitae lacus tincidunt ultrices.";
+
+    let input = *b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    // let input = *b"Hello world hellawd";
+
+    /* #region keys, ivs, and inputs */
+
     // let state = [
     //     0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07,
     //     0x34,
     // ];
 
-    let mut cypher_key: [u8; 16] = [
-        0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f,
-        0x3c,
-    ];
+    // let mut cypher_key: [u8; 16] = [
+    //     0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f,
+    //     0x3c,
+    // ];
+
+    // let key_temp: [u8; 16] = [
+    //     0x8b, 0xed, 0x78, 0xe0, 0xd7, 0x1d, 0x99, 0xf2, 0xb3, 0x44, 0xae, 0x7d, 0xdf, 0x39, 0xb6,
+    //     0x91,
+    // ];
+
+    // let iv_temp: [u8; 16] = [
+    //     0xaa, 0xd2, 0x52, 0x4, 0x14, 0x96, 0x96, 0xa1, 0x8c, 0x94, 0xf9, 0xe9, 0xc4, 0x95, 0xdc,
+    //      0x32
+    // ];
+
+    let key_temp: [u8; 16] = "habdhufgbtropfhg".as_bytes().try_into().unwrap();
+    let iv_temp: [u8; 16] = "ikjzbthfgtreolkf".as_bytes().try_into().unwrap();
+
+    /* #endregion */
+
+    println!("Original: ");
+    print_as_hex(&(input.to_vec()));
+    println!();
+
+    /* #region own aes */
 
     let mut aes = AES128::new();
-    
 
-    aes.generate_key();
+    aes.key = key_temp;
+    aes.iv_vector = iv_temp;
 
-    let cypher = aes.encrypt_ecb(&state);
+    let cypher = aes.encrypt_cbc(&input.to_vec());
 
-    print_hex(&cypher);
+    println!("Own AES Encr:");
+    print_as_hex(&cypher);
+    println!();
 
-    let plain_text = aes.decrypt_ecb(&cypher);
-    println!("Decrypted text: ");
+    let plain = aes.decrypt_cbc(&cypher);
 
-    print_hex(&plain_text);
+    println!("Own AES Decr:");
+    print_as_hex(&plain);
+    println!("'{}'", hex_as_utf8(&plain));
+    println!();
 
-    // in ascii
-    let plain_text = String::from_utf8(plain_text).unwrap();
-    println!("{}", plain_text);
+    /* #endregion */
+
+
+}
+
+fn hex_as_utf8(hex: &Vec<u8>) -> &str {
+    std::str::from_utf8(hex).unwrap()
+}
+
+fn print_as_hex(hex: &Vec<u8>) {
+    for i in 0..hex.len() {
+        print!("{:02x}", hex[i]);
+    }
+    println!();
 }

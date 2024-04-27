@@ -1,12 +1,38 @@
+use rand::{thread_rng, Rng};
+use std::cmp::min;
 
 pub struct AES128 {
-    key: [u8; 16],
+    pub key: [u8; 16],
+    pub iv_vector: [u8; 16],
+    pub nonce: [u8; 16],
+}
+
+pub struct CTRPacket {
+    pub nonce: [u8; 16],
+    pub counter: u128,
+    pub cypher: [u8; 16],
+}
+
+impl CTRPacket {
+    pub fn new() -> CTRPacket {
+        CTRPacket {
+            nonce: [0; 16],
+            counter: 0,
+            cypher: [0; 16],
+        }
+    }
 }
 
 impl AES128 {
     pub fn new() -> AES128 {
-        let mut a = AES128 { key: [0; 16] };
-        a.generate_key();
+        let mut a = AES128 {
+            key: [0; 16],
+            iv_vector: [0; 16],
+            nonce: [0; 16],
+        };
+        a.key = Self::generate_random_128_bits();
+        a.iv_vector = Self::generate_random_128_bits();
+        a.nonce = Self::generate_random_128_bits();
         a
     }
 
@@ -20,12 +46,12 @@ impl AES128 {
                 let mut block: Vec<u8> = plain_text[i * 16..plain_text.len()].to_vec(); // Convert the slice to a Vec<u8>
                 pkcs7_pad(&mut block, 16);
                 let mut block_arr: [u8; 16] = block.try_into().unwrap();
-                block_arr = aes128_ecb_singleblock_encrypt(&self.key, &block_arr);
+                block_arr = aes128_encrypt_block(&self.key, &block_arr);
                 cypher.append(&mut (block_arr.to_vec()));
             } else {
                 // ensure that the slice is 16 bytes long
                 let mut block: [u8; 16] = plain_text[i * 16..(i + 1) * 16].try_into().unwrap();
-                block = aes128_ecb_singleblock_encrypt(&self.key, &block);
+                block = aes128_encrypt_block(&self.key, &block);
                 cypher.append(&mut (block.to_vec()))
             }
         }
@@ -39,41 +65,167 @@ impl AES128 {
         let rounds = (cypher_text.len() as f32 / 16.0).ceil() as usize;
 
         for i in 0..rounds {
-            if i == rounds - 1 {
-                let mut block: [u8; 16] =
-                    cypher_text[i * 16..cypher_text.len()].try_into().unwrap();
-                block = aes128_ecb_singleblock_decrypt(&self.key, &block);
-                plain_text.append(&mut (block.to_vec()));
-            } else {
-                let mut block: [u8; 16] = cypher_text[i * 16..(i + 1) * 16].try_into().unwrap();
-                block = aes128_ecb_singleblock_decrypt(&self.key, &block);
-                plain_text.append(&mut (block.to_vec()));
-            }
+            let mut block: [u8; 16] = cypher_text[i * 16..min((i + 1) * 16, cypher_text.len())]
+                .try_into()
+                .unwrap();
+
+            block = aes128_decrypt_block(&self.key, &block);
+            plain_text.append(&mut (block.to_vec()));
         }
+
+        pkcs7_unpad(&mut plain_text);
 
         plain_text
     }
 
-    pub fn generate_key(&mut self) {
-        for i in 0..16 {
-            self.key[i] = rand::random::<u8>();
+    pub fn encrypt_cbc(&self, plain_text: &Vec<u8>) -> Vec<u8> {
+        // TODO: last 32 bytes (2 blocks) are wrong
+
+        let mut cypher: Vec<u8> = Vec::new();
+        let mut cypher_blocks: Vec<[u8; 16]> = Vec::new();
+
+        let iv = self.iv_vector;
+        let key = self.key;
+        let rounds = (plain_text.len() as f32 / 16.0).ceil() as usize;
+
+        let mut plain_text_blocks: Vec<[u8; 16]> = Vec::new();
+
+        for i in 0..rounds {
+            if i == rounds - 1 {
+                let mut block_vec: Vec<u8> = plain_text[i * 16..plain_text.len()].to_vec();
+                pkcs7_pad(&mut block_vec, 16);
+                if block_vec.len() > 16 {
+                    let block1: [u8; 16] = block_vec[..16].try_into().unwrap();
+                    let block2: [u8; 16] = block_vec[16..].try_into().unwrap();
+                    plain_text_blocks.push(block1);
+                    plain_text_blocks.push(block2);
+                } else {
+                    let block: [u8; 16] = block_vec.try_into().unwrap();
+                    plain_text_blocks.push(block);
+                }
+            } else {
+                let block: [u8; 16] = plain_text[i * 16..(i + 1) * 16].try_into().unwrap();
+                plain_text_blocks.push(block)
+            }
         }
+
+        let mut prev_cypher: [u8; 16] = iv;
+
+        for el in plain_text_blocks.iter() {
+            let mut plain_block = el.clone();
+
+            for i in 0..16 {
+                plain_block[i] ^= prev_cypher[i];
+            }
+
+            let encrypted_block = aes128_encrypt_block(&key, &plain_block);
+            cypher_blocks.push(encrypted_block);
+            prev_cypher = encrypted_block;
+        }
+
+        for el in cypher_blocks.iter_mut() {
+            cypher.append(&mut (el.to_vec()));
+        }
+
+        cypher
     }
 
-    fn set_key(&mut self, key: &[u8; 16]) {
-        self.key = *key;
+    pub fn decrypt_cbc(&self, cypher_text: &Vec<u8>) -> Vec<u8> {
+        let mut plain_text: Vec<u8> = Vec::new();
+        let mut cypher_blocks: Vec<[u8; 16]> = Vec::new();
+        let mut plain_blocks: Vec<[u8; 16]> = Vec::new();
+
+        let iv = self.iv_vector;
+        let key = self.key;
+        let rounds = (cypher_text.len() as f32 / 16.0).ceil() as usize;
+        let mut prev_cypher: [u8; 16] = iv;
+
+        for i in 0..rounds {
+            cypher_blocks.push(
+                cypher_text[i * 16..min((i + 1) * 16, cypher_text.len())]
+                    .try_into()
+                    .unwrap(),
+            )
+        }
+
+        // for i in 0..rounds {
+        //     print_as_hex(&cypher_blocks[i].to_vec());
+        // }
+
+        for i in 0..rounds {
+            let mut block = cypher_blocks[i].clone();
+
+            block = aes128_decrypt_block(&key, &block);
+
+            for i in 0..16 {
+                block[i] ^= prev_cypher[i];
+            }
+
+            plain_blocks.push(block);
+
+            prev_cypher = cypher_blocks[i];
+        }
+
+        for i in 0..rounds {
+            plain_text.append(&mut (plain_blocks[i].to_vec()));
+        }
+
+        pkcs7_unpad(&mut plain_text);
+
+        plain_text
+    }
+
+    pub fn encrypt_ctr(&self, cypher_text: &Vec<u8>) -> Vec<CTRPacket> {
+        let packets: Vec<CTRPacket> = Vec::new();
+        let mut cypher_blocks: Vec<[u8; 16]> = Vec::new();
+        let rounds = (cypher_text.len() as f32 / 16.0).ceil() as usize;
+        let nonce = self.nonce;
+        let mut counter: u128 = 0;
+
+        for i in 0..rounds {
+            let block: [u8; 16] = cypher_text[i * 16..(i + 1) * 16].try_into().unwrap();
+            let mut packet = CTRPacket::new();
+            packet.nonce = nonce;
+            packet.counter = counter;
+            packet.cypher = block.clone();
+
+            counter += 1;
+        }
+
+        packets
+    }
+
+    pub fn generate_random_128_bits() -> [u8; 16] {
+        let mut r = [0u8; 16];
+        thread_rng().fill(&mut r);
+        r
     }
 }
 
-
-fn pkcs7_pad(data: &mut Vec<u8>, block_size: usize) {
+pub fn pkcs7_pad(data: &mut Vec<u8>, block_size: usize) {
     let padding_len = block_size - (data.len() % block_size);
     for _ in 0..padding_len {
         data.push(padding_len as u8);
     }
 }
 
-fn aes128_ecb_singleblock_decrypt(key: &[u8; 16], cypher_text: &[u8; 16]) -> [u8; 16] {
+// remove pkcs7 padding
+pub fn pkcs7_unpad(data: &mut Vec<u8>) {
+    if data.len() == 0 {
+        return;
+    }
+    let padding_len = data[data.len() - 1] as usize;
+    data.truncate(data.len() - padding_len);
+}
+
+fn zero_pad(data: &mut Vec<u8>, block_size: usize) {
+    let padding_len = block_size - (data.len() % block_size);
+    for _ in 0..padding_len {
+        data.push(0);
+    }
+}
+
+fn aes128_decrypt_block(key: &[u8; 16], cypher_text: &[u8; 16]) -> [u8; 16] {
     let mut r = cypher_text.clone();
     let mut round_key = key.clone();
     let mut round_keys: Vec<[u8; 16]> = Vec::new();
@@ -102,7 +254,7 @@ fn aes128_ecb_singleblock_decrypt(key: &[u8; 16], cypher_text: &[u8; 16]) -> [u8
     r
 }
 
-fn aes128_ecb_singleblock_encrypt(key: &[u8; 16], plain_text: &[u8; 16]) -> [u8; 16] {
+fn aes128_encrypt_block(key: &[u8; 16], plain_text: &[u8; 16]) -> [u8; 16] {
     // Perform AES-128 encryption here
 
     let mut r: [u8; 16] = plain_text.clone();
@@ -469,5 +621,15 @@ pub fn print_vert(t: &[u8; 16]) {
         }
         println!("");
     }
-    println!("-------------------");
+}
+
+fn hex_as_utf8(hex: &Vec<u8>) -> &str {
+    std::str::from_utf8(hex).unwrap()
+}
+
+fn print_as_hex(hex: &Vec<u8>) {
+    for i in 0..hex.len() {
+        print!("{:02x}", hex[i]);
+    }
+    println!();
 }
