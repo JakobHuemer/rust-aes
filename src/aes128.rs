@@ -45,9 +45,18 @@ impl AES128 {
             if i == rounds - 1 {
                 let mut block: Vec<u8> = plain_text[i * 16..plain_text.len()].to_vec(); // Convert the slice to a Vec<u8>
                 pkcs7_pad(&mut block, 16);
-                let mut block_arr: [u8; 16] = block.try_into().unwrap();
-                block_arr = aes128_encrypt_block(&self.key, &block_arr);
-                cypher.append(&mut (block_arr.to_vec()));
+                if block.len() > 16 {
+                    let mut block1: [u8; 16] = block[..16].try_into().unwrap();
+                    let mut block2: [u8; 16] = block[16..].try_into().unwrap();
+                    let block_arr2 = aes128_encrypt_block(&self.key, &block2);
+                    let block_arr1 = aes128_encrypt_block(&self.key, &block1);
+                    cypher.append(&mut (block_arr1.to_vec()));
+                    cypher.append(&mut (block_arr2.to_vec()));
+                } else {
+                    let mut block: [u8; 16] = block.try_into().unwrap();
+                    block = aes128_encrypt_block(&self.key, &block);
+                    cypher.append(&mut (block.to_vec()));
+                }
             } else {
                 // ensure that the slice is 16 bytes long
                 let mut block: [u8; 16] = plain_text[i * 16..(i + 1) * 16].try_into().unwrap();
@@ -194,6 +203,8 @@ impl AES128 {
 
         packets
     }
+
+    // TODO: CBC including key stealing
 
     pub fn generate_random_128_bits() -> [u8; 16] {
         let mut r = [0u8; 16];

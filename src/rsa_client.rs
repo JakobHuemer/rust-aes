@@ -1,73 +1,171 @@
+use core::f64;
+use std::borrow::Borrow;
+
+use cbc::cipher::consts::{U1024, U2048};
 use modpow::*;
-use num::{integer::lcm, FromPrimitive};
-use num_bigint::{BigInt, BigUint, RandBigInt, RandomBits, ToBigInt, ToBigUint};
-use num_traits::{Inv, One};
-use rand::{thread_rng, Rng};
+use num::{integer::{lcm}, FromPrimitive};
+use num_bigint::{BigInt, BigUint, ModInverse, RandBigInt, RandomBits, ToBigInt, ToBigUint};
+use num_traits::{Inv, One, Pow};
+use rand::{random, thread_rng, Rng};
+
+use crate::phi;
+use num_traits::Num;
+
+use num_traits::Zero;
+use num_integer::Integer;
+
+/* #region Keys */
+pub struct PublicKey {
+    pub n: BigUint,
+    pub e: BigUint,
+}
+
+impl PublicKey {
+    pub fn new(n: BigUint, e: BigUint) -> PublicKey {
+        PublicKey { n, e }
+    }
+
+    pub fn none() -> PublicKey {
+        PublicKey {
+            e: BigUint::one(),
+            n: BigUint::one(),
+        }
+    }
+}
+
+pub struct PrivateKey {
+    pub d: BigUint,
+    pub e: BigUint,
+}
+
+impl PrivateKey {
+    pub fn new(d: BigUint, e: BigUint) -> PrivateKey {
+        PrivateKey { d, e }
+    }
+
+    pub fn none() -> PrivateKey {
+        PrivateKey {
+            e: BigUint::one(),
+            d: BigUint::one(),
+        }
+    }
+}
+/* #endregion */
 
 pub struct RsaClient {
-    pub private_key: BigUint,
-    pub public_key: (BigUint, BigUint),
+    pub key_size: u64,
+    pub private_key: PrivateKey,
+    pub public_key: PublicKey,
 }
 
 impl RsaClient {
-    pub fn new() -> RsaClient {
+    pub fn new(key_size: u64) -> RsaClient {
         let mut c = RsaClient {
-            private_key: One::one(),
-            public_key: (One::one(), One::one()) // n, e,
+            private_key: PrivateKey::none(),
+            public_key: PublicKey::none(), // n, e,
+            key_size,
         };
         c.generate_keys();
         c
     }
 
-    pub fn from(d: BigUint, n: BigUint, e: BigUint ) -> RsaClient {
+    pub fn from(private_key: PrivateKey, public_key: PublicKey) -> RsaClient {
         RsaClient {
-            private_key: d,
-            public_key: (n, e),
+            private_key: private_key,
+            public_key: public_key,
+            key_size: 1024,
         }
     }
 
     pub fn generate_keys(&mut self) {
         let safety = 60;
 
-        let mut p = Self::gen_random_1024_bits();
+        let mut p = Self::get_random_prime(self.key_size / 2, safety);
+        // let mut p = BigUint::from_u8(61).unwrap();
         // also use test_for_first_primes
-        while !is_one_of_first_primes(&p) || !is_prime(&p, safety) {
-            p = Self::gen_random_1024_bits()
-        }
 
-        let mut q = Self::gen_random_1024_bits();
-        while !is_one_of_first_primes(&q) || !is_prime(&q, safety) {
-            q = Self::gen_random_1024_bits()
-        }
+        println!("p: {}", p.to_str_radix(10));
+        println!();
+
+        let mut q = Self::get_random_prime(self.key_size / 2, safety);
+        // let mut q = BigUint::from_u8(53).unwrap();
+
+        println!("q: {}", q.to_str_radix(10));
+        println!();
 
         let n = &q * &p;
 
+        println!("n: {}", n.to_str_radix(10));
+        println!();
+
+
+        let phi = (&p - 1u8) * (&q - 1u8);
+
+        println!("phi: {}", phi.to_str_radix(10));
+        println!();
+
         let lambda = carmichael_lambda(&p, &q);
 
-        let e: f64 = 65_537.0;
+        println!("lambda: {}", lambda.to_str_radix(10));
+        println!();
 
-        let d = e.to_biguint().unwrap().modpow(&(&lambda - 1u8), &lambda);
-        self.private_key = d;
-        self.public_key = (n, e.to_biguint().unwrap());
+        
+        // let e = random_prime_between( &BigUint::from_u8(2).unwrap(), &phi, safety);
+        let e = BigUint::from_u32(65537u32).unwrap();
+
+        println!("e: {}", e.to_str_radix(10));
+        println!();
+        
+        let d: BigUint = e.borrow().mod_inverse(&lambda).unwrap().to_biguint().unwrap();
+        
+        println!("d: {}", d.to_str_radix(10));
+        println!();
+
+
+        self.private_key = PrivateKey::new(d, e.clone());
+        self.public_key = PublicKey::new(n, e);
+
         // print d as hex
     }
 
     pub fn encrypt(&self, m: &BigUint) -> BigUint {
-        let n = &self.public_key.0;
-        let e = &self.public_key.1;
-        let c = m.modpow(&e, &n);
-        c
+        let e = &self.public_key.e;
+        let n = &self.public_key.n;
+
+        m.modpow(&e, &n)
     }
 
+    pub fn encrypt_bytes(&self, m: &Vec<u8>) -> BigUint {
+        let m = BigUint::from_bytes_le(m);
+        self.encrypt(&m)
+    }
+
+
     pub fn decrypt(&self, c: &BigUint) -> BigUint {
-        let n = &self.public_key.0;
-        let d = &self.private_key;
-        let m = c.modpow(&d, &n);
-        m
+        let d = &self.private_key.d;
+        let n = &self.public_key.n;
+
+        c.modpow(&d, &n)
+    }
+
+    pub fn decrypt_bytes(&self, c: &Vec<u8>) -> BigUint {
+        let c = BigUint::from_bytes_le(c);
+        self.decrypt(&c)
     }
 
     fn gen_random_1024_bits() -> BigUint {
-        thread_rng().gen_biguint(1024)
+        BigUint::from_u8(23).unwrap()
+    }
+
+    fn get_random_prime(bits: u64, safety: u64) -> BigUint {
+        loop {
+            let mut rng = thread_rng();
+            let mut n = rng.gen_biguint(bits as usize);
+            n |= BigUint::one() << bits as usize;
+            if is_prime(&n, safety) {
+                return n;
+            }
+        }
     }
 }
 
@@ -127,4 +225,16 @@ fn is_one_of_first_primes(n: &BigUint) -> bool {
     }
 
     true
+}
+
+
+fn random_prime_between(p: &BigUint, q: &BigUint, precision: u64 ) -> BigUint {
+    let mut rng = thread_rng();
+    let mut n = rng.gen_biguint_range(p, q);
+
+    while !is_prime(&n, precision) {
+        n = rng.gen_biguint_range(p, q);
+    }
+
+    n
 }
