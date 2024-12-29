@@ -1,5 +1,6 @@
 use rand::{thread_rng, Rng};
 use std::cmp::min;
+use std::io::stdout;
 
 pub struct AES128 {
     pub key: [u8; 16],
@@ -95,23 +96,18 @@ impl AES128 {
 
         let iv = self.iv_vector;
         let key = self.key;
-        let rounds = (plain_text.len() as f32 / 16.0).ceil() as usize;
+        let rounds = ((plain_text.len() as f32 + 1.0) / 16.0).ceil() as usize;
 
         let mut plain_text_blocks: Vec<[u8; 16]> = Vec::new();
 
         for i in 0..rounds {
             if i == rounds - 1 {
+                // pad block and append
                 let mut block_vec: Vec<u8> = plain_text[i * 16..plain_text.len()].to_vec();
                 pkcs7_pad(&mut block_vec, 16);
-                if block_vec.len() > 16 {
-                    let block1: [u8; 16] = block_vec[..16].try_into().unwrap();
-                    let block2: [u8; 16] = block_vec[16..].try_into().unwrap();
-                    plain_text_blocks.push(block1);
-                    plain_text_blocks.push(block2);
-                } else {
-                    let block: [u8; 16] = block_vec.try_into().unwrap();
-                    plain_text_blocks.push(block);
-                }
+
+                let block: [u8; 16] = block_vec.try_into().unwrap();
+                plain_text_blocks.push(block);
             } else {
                 let block: [u8; 16] = plain_text[i * 16..(i + 1) * 16].try_into().unwrap();
                 plain_text_blocks.push(block)
@@ -205,6 +201,56 @@ impl AES128 {
     }
 
     // TODO: CBC including key stealing
+
+    pub fn encrypt_cbc_steal(&self, plain_text: &Vec<u8>) -> Vec<u8> {
+
+        let mut cypher: Vec<u8> = Vec::new();
+        let mut cypher_blocks: Vec<[u8; 16]> = Vec::new();
+
+        let iv = self.iv_vector;
+        let key = self.key;
+        let rounds = ((plain_text.len() as f32 + 1.0) / 16.0).ceil() as usize;
+
+        let mut plain_text_blocks: Vec<[u8; 16]> = Vec::new();
+
+        for i in 0..rounds {
+            if i == rounds - 1 {
+                // pad block and append
+                let mut block_vec: Vec<u8> = plain_text[i * 16..plain_text.len()].to_vec();
+                zero_pad(&mut block_vec, 16);
+
+                let block: [u8; 16] = block_vec.try_into().unwrap();
+                plain_text_blocks.push(block);
+            } else {
+                let block: [u8; 16] = plain_text[i * 16..(i + 1) * 16].try_into().unwrap();
+                plain_text_blocks.push(block)
+            }
+        }
+
+        let mut prev_cypher: [u8; 16] = iv;
+
+        for el in plain_text_blocks.iter() {
+            let mut plain_block = el.clone();
+
+            for i in 0..16 {
+                plain_block[i] ^= prev_cypher[i];
+            }
+
+            let encrypted_block = aes128_encrypt_block(&key, &plain_block);
+            cypher_blocks.push(encrypted_block);
+            prev_cypher = encrypted_block;
+        }
+
+        // swap last two cypher blocks
+        // TODO: See comment above
+
+        for el in cypher_blocks.iter_mut() {
+            cypher.append(&mut (el.to_vec()));
+        }
+
+
+        cypher
+    }
 
     pub fn generate_random_128_bits() -> [u8; 16] {
         let mut r = [0u8; 16];
@@ -622,6 +668,7 @@ pub fn print_hex(t: &[u8]) {
             println!("");
         }
     }
+    println!("")
 }
 
 pub fn print_vert(t: &[u8; 16]) {

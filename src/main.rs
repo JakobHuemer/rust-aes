@@ -12,7 +12,7 @@ use num_bigint::{RandBigInt, RandomBits, ToBigUint};
 use pem::parse;
 use rand::{thread_rng, Rng};
 use rsa_client::{is_prime, RsaClient};
-
+use crate::aes128::{print_hex, print_vert};
 use crate::rsa_client::PrivateKey;
 /**
  *
@@ -36,42 +36,56 @@ fn main() {
     // TODO: read image and encrypt it with ecb and cbc
 
     // read only data of the image not the whole file using image
-    let img = image::open("assets/image.jpg").unwrap();
-
-    println!("Image dimensions: {:?}", img.dimensions());
-    let bytes = img.as_bytes().to_vec();
+    // let img = image::open("assets/image.jpg").unwrap();
+    //
+    // println!("Image dimensions: {:?}", img.dimensions());
+    // let bytes = img.as_bytes().to_vec();
 
     let aes = AES128::new();
 
+    let data = "12345678901234567".as_bytes();
 
-    let encrypted_ecb = aes.encrypt_ecb(&bytes);
+    print_as_hex(&data.to_vec());
 
-    let encrypted_cbc = aes.encrypt_cbc(&bytes);
+    let encrypted = aes.encrypt_cbc(&data.to_vec());
 
-    
-    let cut_off_ecb = encrypted_ecb[0..bytes.len()].to_vec();
-    let cut_off_cbc = encrypted_cbc[0..bytes.len()].to_vec();
+    // log encrypted
+    print_as_hex(&encrypted);
 
+    let decrypted = aes.decrypt_cbc(&encrypted);
 
-    // write
-
-    let img_ecb = image::RgbImage::from_vec(img.width(), img.height(), cut_off_ecb).unwrap();
-    img_ecb.save("assets/image_ecb.jpg").unwrap();
-
-    let img_cbc = image::RgbImage::from_vec(img.width(), img.height(), cut_off_cbc).unwrap();
-    img_cbc.save("assets/image_cbc.jpg").unwrap();
+    // print as utf8
+    print_as_hex(&decrypted);
 
 
-    // raad ecb image
-    let img_enc_ecb = image::open("assets/image_ecb.jpg").unwrap();
-
-    let bytes_enc_ecb = img_enc_ecb.as_bytes().to_vec();
-
-    let decrypted_ecb = aes.decrypt_ecb(&bytes_enc_ecb);
-
-    let img_dec_ecb = image::RgbImage::from_vec(img.width(), img.height(), decrypted_ecb).unwrap();
-
-    img_dec_ecb.save("assets/image_dec_ecb.jpg").unwrap();
+    // let encrypted_ecb = aes.encrypt_ecb(&bytes);
+    //
+    // let encrypted_cbc = aes.encrypt_cbc(&bytes);
+    //
+    //
+    // let cut_off_ecb = encrypted_ecb[0..bytes.len()].to_vec();
+    // let cut_off_cbc = encrypted_cbc[0..bytes.len()].to_vec();
+    //
+    //
+    // // write
+    //
+    // let img_ecb = image::RgbImage::from_vec(img.width(), img.height(), cut_off_ecb).unwrap();
+    // img_ecb.save("assets/image_ecb.jpg").unwrap();
+    //
+    // let img_cbc = image::RgbImage::from_vec(img.width(), img.height(), cut_off_cbc).unwrap();
+    // img_cbc.save("assets/image_cbc.jpg").unwrap();
+    //
+    //
+    // // raad ecb image
+    // let img_enc_ecb = image::open("assets/image_ecb.jpg").unwrap();
+    //
+    // let bytes_enc_ecb = img_enc_ecb.as_bytes().to_vec();
+    //
+    // let decrypted_ecb = aes.decrypt_ecb(&bytes_enc_ecb);
+    //
+    // let img_dec_ecb = image::RgbImage::from_vec(img.width(), img.height(), decrypted_ecb).unwrap();
+    //
+    // img_dec_ecb.save("assets/image_dec_ecb.jpg").unwrap();
 
     
 }
